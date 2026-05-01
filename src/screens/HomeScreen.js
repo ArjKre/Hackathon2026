@@ -1,28 +1,22 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   Animated,
-  Easing,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   useWindowDimensions,
-  Vibration,
   View,
 } from 'react-native';
 import Svg, {Circle} from 'react-native-svg';
 import SensorService from '../services/SensorService';
-import LocationService from '../services/LocationService';
-import EmergencyOverlay from '../components/EmergencyOverlay';
 import {COLORS, SPACING, ZONES} from '../theme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-export default function HomeScreen({zone, score, setZone, setScore}) {
+export default function HomeScreen({zone, score, setZone, setScore, onSOS}) {
   const {width} = useWindowDimensions();
-  const [emergency, setEmergency] = useState(false);
   const [location, setLocation] = useState('Fazer Town, Bengaluru');
   const [readings, setReadings] = useState({accelMag: 9.81, gyroMag: 0});
 
@@ -33,19 +27,11 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
   const [displayScore, setDisplayScore] = useState(score);
 
   useEffect(() => {
-    LocationService.requestPermission();
-    SensorService.startMonitoring();
-    
-    SensorService.onImpactDetected = () => {
-      setEmergency(true);
-      Vibration.vibrate([0, 500, 200, 500]);
-    };
+    SensorService.onReadingsUpdated = setReadings;
 
-    SensorService.onReadingsUpdated = (r) => {
-      setReadings(r);
+    return () => {
+      SensorService.onReadingsUpdated = null;
     };
-
-    return () => SensorService.stopMonitoring();
   }, []);
 
   // Update animated score
@@ -85,8 +71,7 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
   const accent = getZoneAccent();
 
   const handleSOS = () => {
-    setEmergency(true);
-    Vibration.vibrate(100);
+    onSOS();
   };
 
   const cycleZone = () => {
@@ -224,15 +209,6 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
 
         <View style={{height: 100}} />
       </ScrollView>
-
-      <EmergencyOverlay 
-        visible={emergency} 
-        onCancel={() => setEmergency(false)} 
-        onCallNow={() => {
-          setEmergency(false);
-          Linking.openURL('tel:112');
-        }}
-      />
     </View>
   );
 }
