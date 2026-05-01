@@ -5,6 +5,7 @@ import {
   Linking,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -267,7 +268,7 @@ function ServiceCard({icon, type, name, dist}) {
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: COLORS.base},
   scroll: {flex: 1},
-  scrollContent: {paddingHorizontal: SPACING.screenPadding, paddingTop: Platform.OS === 'ios' ? 60 : 40},
+  scrollContent: {paddingHorizontal: SPACING.screenPadding, paddingTop: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight ?? 24) + 16},
   
   header: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20},
   appName: {color: COLORS.textSecondary, fontSize: 12, fontWeight: '700', letterSpacing: 1},
