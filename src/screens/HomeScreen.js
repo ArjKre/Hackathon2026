@@ -12,382 +12,316 @@ import {
   Vibration,
   View,
 } from 'react-native';
+import Svg, {Circle} from 'react-native-svg';
 import SensorService from '../services/SensorService';
 import LocationService from '../services/LocationService';
 import EmergencyOverlay from '../components/EmergencyOverlay';
-import {SensorGauge, RadarWidget, Sparkline} from '../components/SensorWidgets';
+import {COLORS, SPACING, ZONES} from '../theme';
 
-const HISTORY_LEN = 60;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-export default function HomeScreen() {
+export default function HomeScreen({zone, score, setZone, setScore}) {
   const {width} = useWindowDimensions();
-  const contentWidth = width - 40 - 40; // padding 20 each side + card padding 20 each
-
-  const [monitoring, setMonitoring] = useState(true);
   const [emergency, setEmergency] = useState(false);
-  const [readings, setReadings] = useState({
-    ax: 0, ay: 0, az: 0,
-    gx: 0, gy: 0, gz: 0,
-    accelMag: 9.81,
-    gyroMag: 0,
-  });
+  const [location, setLocation] = useState('Fazer Town, Bengaluru');
+  const [readings, setReadings] = useState({accelMag: 9.81, gyroMag: 0});
 
-  const accelHistory = useRef(Array(HISTORY_LEN).fill(0));
-  const [historyTick, setHistoryTick] = useState(0);
+  // Animations
+  const ringAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const scoreCounter = useRef(new Animated.Value(score)).current;
+  const [displayScore, setDisplayScore] = useState(score);
 
-  // Toggle animation
-  const toggleAnim = useRef(new Animated.Value(1)).current;
-  // Status pulse
-  const pulseAnim = useRef(new Animated.Value(0.5)).current;
-
-  // Run status pulse loop
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.4,
-          duration: 900,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulseAnim]);
-
-  // Boot
   useEffect(() => {
     LocationService.requestPermission();
-
+    SensorService.startMonitoring();
+    
     SensorService.onImpactDetected = () => {
       setEmergency(true);
+      Vibration.vibrate([0, 500, 200, 500]);
     };
+
     SensorService.onReadingsUpdated = (r) => {
       setReadings(r);
-      accelHistory.current.shift();
-      accelHistory.current.push(r.accelMag);
-      setHistoryTick((t) => t + 1);
     };
 
-    SensorService.startMonitoring();
-    return () => {
-      SensorService.dispose();
-    };
+    return () => SensorService.stopMonitoring();
   }, []);
 
-  const toggleMonitoring = useCallback(() => {
-    Vibration.vibrate(30);
-    Animated.spring(toggleAnim, {
-      toValue: monitoring ? 0 : 1,
+  // Update animated score
+  useEffect(() => {
+    Animated.timing(scoreCounter, {
+      toValue: score,
+      duration: 1000,
       useNativeDriver: false,
-      tension: 100,
-      friction: 7,
     }).start();
-    setMonitoring((m) => {
-      if (m) SensorService.stopMonitoring();
-      else SensorService.startMonitoring();
-      return !m;
+
+    const listener = scoreCounter.addListener(({value}) => {
+      setDisplayScore(Math.round(value));
     });
-  }, [monitoring, toggleAnim]);
 
-  const cancelEmergency = useCallback(() => {
-    Vibration.vibrate(40);
-    setEmergency(false);
+    return () => scoreCounter.removeListener(listener);
+  }, [score]);
+
+  // Pulse animation for location dot and unsafe ring
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {toValue: 1, duration: 1000, useNativeDriver: true}),
+        Animated.timing(pulseAnim, {toValue: 0, duration: 1000, useNativeDriver: true}),
+      ])
+    ).start();
   }, []);
 
-  const callEmergency = useCallback(async () => {
-    setEmergency(false);
-    // Adjust number for your country: 911, 999, 000, etc.
-    const url = 'tel:112';
-    const can = await Linking.canOpenURL(url);
-    if (can) Linking.openURL(url);
-  }, []);
+  const getZoneAccent = () => {
+    switch (zone) {
+      case ZONES.SAFE: return COLORS.safe;
+      case ZONES.CAUTION: return COLORS.caution;
+      case ZONES.UNSAFE: return COLORS.unsafe;
+      default: return COLORS.safe;
+    }
+  };
 
-  const simulateCrash = useCallback(() => {
-    Vibration.vibrate([0, 200, 100, 400]);
+  const accent = getZoneAccent();
+
+  const handleSOS = () => {
     setEmergency(true);
-  }, []);
+    Vibration.vibrate(100);
+  };
 
-  // Toggle knob position
-  const knobTranslate = toggleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [3, 29],
-  });
-
-  const toggleBg = toggleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(255,255,255,0.08)', 'rgba(34,197,94,0.18)'],
-  });
-
-  const toggleBorder = toggleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(255,255,255,0.2)', '#22C55E'],
-  });
-
-  const knobColor = toggleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(255,255,255,0.3)', '#22C55E'],
-  });
+  const cycleZone = () => {
+    if (zone === ZONES.SAFE) {
+      setZone(ZONES.CAUTION);
+      setScore(51);
+    } else if (zone === ZONES.CAUTION) {
+      setZone(ZONES.UNSAFE);
+      setScore(22);
+    } else {
+      setZone(ZONES.SAFE);
+      setScore(82);
+    }
+  };
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        style={styles.scroll}
+      <ScrollView 
+        style={styles.scroll} 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        bounces>
-
-        {/* ── Header ── */}
+      >
+        {/* 1.1 Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.appName}>SafeGuard</Text>
-            <Text style={styles.appSub}>Crash & Fall Detection</Text>
+            <Text style={styles.appName}>WOMEN SAFE</Text>
+            <Text style={styles.greeting}>Good evening, Haidar</Text>
           </View>
-          {/* Toggle */}
-          <TouchableOpacity onPress={toggleMonitoring} activeOpacity={0.85}>
-            <Animated.View style={[styles.toggle, {backgroundColor: toggleBg, borderColor: toggleBorder}]}>
-              <Animated.View style={[styles.knob, {transform: [{translateX: knobTranslate}], backgroundColor: knobColor}]} />
-            </Animated.View>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Status card ── */}
-        <View style={[styles.card, monitoring ? styles.cardGreen : styles.cardDim]}>
-          <View style={styles.statusRow}>
-            <Animated.View style={[
-              styles.statusDot,
-              {
-                backgroundColor: monitoring ? '#22C55E' : 'rgba(255,255,255,0.25)',
-                opacity: monitoring ? pulseAnim : 0.3,
-                shadowColor: '#22C55E',
-                shadowOpacity: monitoring ? 0.7 : 0,
-                shadowRadius: 8,
-              },
-            ]} />
-            <View style={styles.statusText}>
-              <Text style={[styles.statusTitle, {color: monitoring ? '#22C55E' : 'rgba(255,255,255,0.4)'}]}>
-                {monitoring ? 'MONITORING ACTIVE' : 'MONITORING PAUSED'}
-              </Text>
-              <Text style={styles.statusBody}>
-                {monitoring
-                  ? 'Watching for sudden impacts and falls'
-                  : 'Tap the toggle to resume protection'}
-              </Text>
+          <View style={styles.headerRight}>
+            <TouchableOpacity style={styles.iconBtn}>
+              <Text style={styles.iconText}>🔔</Text>
+              {zone !== ZONES.SAFE && <View style={[styles.badge, {backgroundColor: accent}]} />}
+            </TouchableOpacity>
+            <View style={styles.avatarMini}>
+              <Text style={styles.avatarTextMini}>H</Text>
             </View>
           </View>
         </View>
 
-        {/* ── Accelerometer ── */}
-        <View style={styles.card}>
-          <Text style={[styles.sectionLabel, {color: '#3B82F6'}]}>ACCELEROMETER</Text>
-          <View style={styles.sectionBody}>
-            <SensorGauge label="X Axis" value={readings.ax} maxValue={30} color="#3B82F6" unit=" m/s²" />
-            <SensorGauge label="Y Axis" value={readings.ay} maxValue={30} color="#3B82F6" unit=" m/s²" />
-            <SensorGauge label="Z Axis" value={readings.az} maxValue={30} color="#3B82F6" unit=" m/s²" />
-          </View>
-          <Text style={[styles.sectionLabel, {color: '#8B5CF6', marginTop: 16}]}>GYROSCOPE</Text>
-          <View style={styles.sectionBody}>
-            <SensorGauge label="Roll" value={readings.gx} maxValue={10} color="#8B5CF6" unit=" rad/s" />
-            <SensorGauge label="Pitch" value={readings.gy} maxValue={10} color="#8B5CF6" unit=" rad/s" />
-            <SensorGauge label="Yaw" value={readings.gz} maxValue={10} color="#8B5CF6" unit=" rad/s" />
+        {/* 1.2 Location Pill */}
+        <View style={styles.locationContainer}>
+          <View style={styles.locationPill}>
+            <Animated.View style={[styles.pulseDot, {backgroundColor: COLORS.safe, opacity: pulseAnim}]} />
+            <Text style={styles.locationIcon}>📍</Text>
+            <Text style={styles.locationText}>{location} • Live</Text>
           </View>
         </View>
 
-        {/* ── Radar ── */}
-        <View style={styles.card}>
-          <View style={styles.radarRow}>
-            <RadarWidget accelMag={readings.accelMag} gyroMag={readings.gyroMag} />
-            <View style={styles.radarInfo}>
-              <Text style={styles.sectionLabel}>MOTION RADAR</Text>
-              <View style={{marginTop: 14}}>
-                <MagRow label="Accel" value={readings.accelMag} max={30} color="#3B82F6" />
-                <View style={{height: 12}} />
-                <MagRow label="Gyro" value={readings.gyroMag} max={10} color="#8B5CF6" />
-              </View>
-              <View style={{marginTop: 14}}>
-                <ThresholdRow label="Impact at" value="≥ 25 m/s²" />
-                <ThresholdRow label="Spin at" value="≥ 8 rad/s" />
-              </View>
+        {/* 1.3 Score Ring */}
+        <View style={styles.scoreContainer}>
+          <View style={styles.scoreRingWrapper}>
+            {zone === ZONES.UNSAFE && (
+              <Animated.View style={[styles.pulseRing, {borderColor: accent, transform: [{scale: pulseAnim.interpolate({inputRange: [0, 1], outputRange: [1, 1.4]})}, ], opacity: pulseAnim.interpolate({inputRange: [0, 1], outputRange: [0.5, 0]}) }]} />
+            )}
+            <Svg width="180" height="180" viewBox="0 0 100 100">
+              <Circle
+                cx="50" cy="50" r="45"
+                stroke={COLORS.border}
+                strokeWidth="8"
+                fill="none"
+              />
+              <Circle
+                cx="50" cy="50" r="45"
+                stroke={accent}
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={`${(displayScore / 100) * 283} 283`}
+                strokeLinecap="round"
+                transform="rotate(-90 50 50)"
+              />
+            </Svg>
+            <View style={styles.scoreCenter}>
+              <Text style={[styles.scoreNumber, {color: COLORS.textPrimary}]}>{displayScore}</Text>
+              <Text style={[styles.zoneLabel, {color: accent}]}>{zone.toUpperCase()}</Text>
             </View>
           </View>
         </View>
 
-        {/* ── Sparkline ── */}
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>ACCELERATION HISTORY</Text>
-          <View style={{marginTop: 14}}>
-            <Sparkline values={[...accelHistory.current]} width={contentWidth} />
-          </View>
-          <View style={styles.sparkLabels}>
-            <Text style={styles.sparkLabelText}>30s ago</Text>
-            <Text style={styles.sparkLabelText}>now</Text>
-          </View>
+        {/* 1.4 Score Factors */}
+        <View style={styles.factorsCard}>
+          <FactorItem label="Risk" value="Low" color={COLORS.safe} />
+          <View style={styles.divider} />
+          <FactorItem label="Movement" value={readings.accelMag > 15 ? 'Fast' : 'Steady'} color={readings.accelMag > 15 ? COLORS.caution : COLORS.safe} />
+          <View style={styles.divider} />
+          <FactorItem label="Time" value="Night" color={COLORS.caution} />
+          <View style={styles.divider} />
+          <FactorItem label="Crime" value="2.4%" color={COLORS.safe} />
         </View>
 
-        {/* ── Simulate ── */}
-        <TouchableOpacity style={styles.simulateBtn} onPress={simulateCrash} activeOpacity={0.75}>
-          <Text style={styles.simulateIcon}>⚡</Text>
-          <Text style={styles.simulateBtnText}>SIMULATE IMPACT (TEST)</Text>
+        {/* 1.5 Alert Banner */}
+        {zone !== ZONES.SAFE && (
+          <View style={[styles.alertBanner, {backgroundColor: `${accent}22`, borderColor: accent}]}>
+            <Text style={styles.alertIcon}>{zone === ZONES.UNSAFE ? '⚠️' : 'ℹ️'}</Text>
+            <View style={{flex: 1}}>
+              <Text style={[styles.alertTitle, {color: accent}]}>
+                {zone === ZONES.UNSAFE ? 'High Risk Area Detected' : 'Increased Caution Advised'}
+              </Text>
+              <Text style={styles.alertDesc}>
+                {zone === ZONES.UNSAFE 
+                  ? 'Multiple incidents reported nearby. Stay in well-lit areas.' 
+                  : 'You are entering a zone with moderate incident history.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* 1.6 SOS Button */}
+        <TouchableOpacity 
+          style={[styles.sosButton, {borderColor: accent, backgroundColor: zone === ZONES.UNSAFE ? accent : COLORS.card}]} 
+          onPress={handleSOS}
+        >
+          <Text style={[styles.sosButtonText, {color: zone === ZONES.UNSAFE ? COLORS.base : COLORS.unsafe}]}>
+            TRIGGER EMERGENCY SOS
+          </Text>
         </TouchableOpacity>
-        <Text style={styles.simulateNote}>For testing only — triggers the emergency overlay</Text>
 
-        <View style={{height: 32}} />
+        {/* 1.7 Nearby Services */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Nearby Safety Services</Text>
+          <View style={[styles.priorityBadge, {backgroundColor: `${accent}22`}]}>
+            <Text style={[styles.priorityText, {color: accent}]}>PRIORITY MODE</Text>
+          </View>
+        </View>
+        
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.servicesScroll}>
+          <ServiceCard icon="👮" type="Police" name="Central Station" dist="0.8 km" />
+          <ServiceCard icon="🏥" type="Hospital" name="St. Johns" dist="1.2 km" />
+          <ServiceCard icon="🚒" type="Fire" name="Station 4" dist="2.5 km" />
+        </ScrollView>
+
+        {/* Tweaks for demo */}
+        <TouchableOpacity onPress={cycleZone} style={styles.tweakBtn}>
+          <Text style={styles.tweakText}>Toggle Zone (Demo: {zone})</Text>
+        </TouchableOpacity>
+
+        <View style={{height: 100}} />
       </ScrollView>
 
-      <EmergencyOverlay
-        visible={emergency}
-        onCancel={cancelEmergency}
-        onCallNow={callEmergency}
+      <EmergencyOverlay 
+        visible={emergency} 
+        onCancel={() => setEmergency(false)} 
+        onCallNow={() => {
+          setEmergency(false);
+          Linking.openURL('tel:112');
+        }}
       />
     </View>
   );
 }
 
-// ─── Small sub-components ────────────────────────────────────────────────────
-
-function MagRow({label, value, max, color}) {
-  const pct = Math.min(value / max, 1);
+function FactorItem({label, value, color}) {
   return (
-    <View>
-      <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4}}>
-        <Text style={{color: 'rgba(255,255,255,0.5)', fontSize: 12}}>{label}</Text>
-        <Text style={{color, fontSize: 12, fontWeight: '700'}}>{value.toFixed(1)}</Text>
+    <View style={styles.factorItem}>
+      <Text style={[styles.factorValue, {color}]}>{value}</Text>
+      <Text style={styles.factorLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function ServiceCard({icon, type, name, dist}) {
+  return (
+    <View style={styles.serviceCard}>
+      <View style={styles.serviceIconContainer}>
+        <Text style={styles.serviceIcon}>{icon}</Text>
       </View>
-      <View style={{height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.07)', overflow: 'hidden'}}>
-        <View style={{width: `${pct * 100}%`, height: '100%', borderRadius: 2, backgroundColor: color}} />
+      <Text style={styles.serviceType}>{type}</Text>
+      <Text style={styles.serviceName}>{name}</Text>
+      <View style={styles.serviceFooter}>
+        <Text style={styles.serviceDist}>{dist}</Text>
+        <TouchableOpacity style={styles.navBtn}>
+          <Text style={styles.navBtnText}>Go</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-function ThresholdRow({label, value}) {
-  return (
-    <View style={{flexDirection: 'row', marginTop: 4}}>
-      <Text style={{color: 'rgba(255,255,255,0.35)', fontSize: 11}}>{label} </Text>
-      <Text style={{color: '#EF4444', fontSize: 11, fontWeight: '600'}}>{value}</Text>
-    </View>
-  );
-}
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  root: {flex: 1, backgroundColor: '#080810'},
+  root: {flex: 1, backgroundColor: COLORS.base},
   scroll: {flex: 1},
-  scrollContent: {paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 24},
+  scrollContent: {paddingHorizontal: SPACING.screenPadding, paddingTop: Platform.OS === 'ios' ? 60 : 40},
+  
+  header: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20},
+  appName: {color: COLORS.textSecondary, fontSize: 12, fontWeight: '700', letterSpacing: 1},
+  greeting: {color: COLORS.textPrimary, fontSize: 18, fontWeight: '700'},
+  headerRight: {flexDirection: 'row', alignItems: 'center'},
+  iconBtn: {width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 8},
+  iconText: {fontSize: 20},
+  badge: {position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4},
+  avatarMini: {width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.elevated, alignItems: 'center', justifyContent: 'center'},
+  avatarTextMini: {color: COLORS.textPrimary, fontWeight: '700'},
 
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  appName: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  appSub: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 13,
-  },
+  locationContainer: {alignItems: 'center', marginBottom: 24},
+  locationPill: {flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 100, borderWidth: 1, borderColor: COLORS.border},
+  pulseDot: {width: 8, height: 8, borderRadius: 4, marginRight: 8},
+  locationIcon: {fontSize: 14, marginRight: 4},
+  locationText: {color: COLORS.textPrimary, fontSize: 13, fontWeight: '600'},
 
-  toggle: {
-    width: 56,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1.5,
-    justifyContent: 'center',
-  },
-  knob: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    position: 'absolute',
-  },
+  scoreContainer: {alignItems: 'center', marginBottom: 32},
+  scoreRingWrapper: {width: 180, height: 180, alignItems: 'center', justifyContent: 'center'},
+  scoreCenter: {position: 'absolute', alignItems: 'center'},
+  scoreNumber: {fontSize: 48, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace'},
+  zoneLabel: {fontSize: 12, fontWeight: '700', letterSpacing: 2, marginTop: -4},
+  pulseRing: {position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 2},
 
-  card: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    padding: 20,
-    marginBottom: 16,
-  },
-  cardGreen: {
-    borderColor: 'rgba(34,197,94,0.3)',
-    backgroundColor: 'rgba(34,197,94,0.06)',
-  },
-  cardDim: {
-    borderColor: 'rgba(255,255,255,0.07)',
-  },
+  factorsCard: {flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: SPACING.radiusCard, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: COLORS.border},
+  factorItem: {flex: 1, alignItems: 'center'},
+  factorValue: {fontSize: 14, fontWeight: '700', marginBottom: 4},
+  factorLabel: {fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase'},
+  divider: {width: 1, height: '100%', backgroundColor: COLORS.border},
 
-  statusRow: {flexDirection: 'row', alignItems: 'center'},
-  statusDot: {
-    width: 12, height: 12,
-    borderRadius: 6,
-    marginRight: 14,
-    elevation: 4,
-  },
-  statusText: {flex: 1},
-  statusTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    marginBottom: 2,
-  },
-  statusBody: {
-    color: 'rgba(255,255,255,0.38)',
-    fontSize: 12,
-  },
+  alertBanner: {flexDirection: 'row', padding: 16, borderRadius: SPACING.radiusCard, borderWidth: 1, marginBottom: 24},
+  alertIcon: {fontSize: 20, marginRight: 12},
+  alertTitle: {fontSize: 15, fontWeight: '700', marginBottom: 4},
+  alertDesc: {color: COLORS.textSecondary, fontSize: 13, lineHeight: 18},
 
-  sectionLabel: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-  },
-  sectionBody: {marginTop: 14},
+  sosButton: {height: 56, borderRadius: 28, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginBottom: 32},
+  sosButtonText: {fontSize: 14, fontWeight: '800', letterSpacing: 1},
 
-  radarRow: {flexDirection: 'row', alignItems: 'center'},
-  radarInfo: {flex: 1, marginLeft: 16},
+  sectionHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16},
+  sectionTitle: {color: COLORS.textPrimary, fontSize: 16, fontWeight: '700'},
+  priorityBadge: {paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4},
+  priorityText: {fontSize: 10, fontWeight: '800'},
 
-  sparkLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  sparkLabelText: {color: 'rgba(255,255,255,0.28)', fontSize: 10},
+  servicesScroll: {marginHorizontal: -SPACING.screenPadding, paddingLeft: SPACING.screenPadding},
+  serviceCard: {width: 160, backgroundColor: COLORS.card, borderRadius: SPACING.radiusCard, padding: 16, marginRight: 12, borderWidth: 1, borderColor: COLORS.border},
+  serviceIconContainer: {width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.elevated, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
+  serviceIcon: {fontSize: 20},
+  serviceType: {color: COLORS.textMuted, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', marginBottom: 4},
+  serviceName: {color: COLORS.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: 12},
+  serviceFooter: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'},
+  serviceDist: {color: COLORS.textSecondary, fontSize: 12},
+  navBtn: {backgroundColor: `${COLORS.safe}22`, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 100},
+  navBtnText: {color: COLORS.safe, fontSize: 12, fontWeight: '700'},
 
-  simulateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    height: 54,
-    backgroundColor: 'rgba(239,68,68,0.09)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(239,68,68,0.38)',
-    gap: 8,
-  },
-  simulateIcon: {fontSize: 18},
-  simulateBtnText: {
-    color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 1.0,
-  },
-  simulateNote: {
-    color: 'rgba(255,255,255,0.22)',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 8,
-  },
+  tweakBtn: {marginTop: 20, padding: 10, alignItems: 'center'},
+  tweakText: {color: COLORS.textMuted, fontSize: 12},
 });
