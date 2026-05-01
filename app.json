@@ -2,7 +2,10 @@
   "expo": {
     "name": "women-safe",
     "slug": "women-safe",
-    "version": "1.0.0"
+    "version": "1.0.0",
+    "android": {
+      "package": "com.anonymous.womensafe"
+    }
   },
   "name": "women-safe"
 }

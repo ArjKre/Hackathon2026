@@ -1,4 +1,4 @@
-package com.womensafe
+package com.anonymous.womensafe
 
 import android.app.Application
 import android.content.res.Configuration
