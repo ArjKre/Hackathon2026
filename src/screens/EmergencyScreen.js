@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {COLORS, SPACING} from '../theme';
 import NavModal from '../components/NavModal';
+import NearbyServicesService from '../services/NearbyServicesService';
 
 const contacts = [
   {name: 'Mom', relation: 'Family', phone: '+91 98765 43210'},
@@ -9,26 +10,10 @@ const contacts = [
   {name: 'Priya', relation: 'Colleague', phone: '+91 76543 21098'},
 ];
 
-const services = [
-  {
-    icon: '👮', type: 'Police Station', name: 'Central Police Station',
-    address: 'MG Road, Bengaluru', dist: '0.8 km', time: '3 min',
-    phone: '100', coords: {lat: 12.9716, lng: 77.5946},
-  },
-  {
-    icon: '🏥', type: 'Hospital', name: "St. John's Hospital",
-    address: 'Sarjapur Road, Bengaluru', dist: '1.2 km', time: '5 min',
-    phone: '108', coords: {lat: 12.9352, lng: 77.6245},
-  },
-  {
-    icon: '🚒', type: 'Fire Station', name: 'Fire Station 4',
-    address: 'Koramangala, Bengaluru', dist: '2.5 km', time: '8 min',
-    phone: '101', coords: {lat: 12.9352, lng: 77.6245},
-  },
-];
-
-export default function EmergencyScreen() {
+export default function EmergencyScreen({nearbyServices = []}) {
   const [navFacility, setNavFacility] = useState(null);
+
+  const services = NearbyServicesService.groupTopByType(nearbyServices, 1);
 
   const call = (number) => Linking.openURL(`tel:${number}`);
 
@@ -67,8 +52,11 @@ export default function EmergencyScreen() {
 
         {/* 3.4 Nearest Services */}
         <Text style={[styles.sectionLabel, {marginTop: 24}]}>Nearest Services</Text>
+        {services.length === 0 && (
+          <Text style={styles.loadingText}>Locating nearby services…</Text>
+        )}
         {services.map((s, i) => (
-          <View key={i} style={styles.serviceCard}>
+          <View key={s.id ?? i} style={styles.serviceCard}>
             <View style={styles.serviceTop}>
               <View style={styles.serviceIconBox}>
                 <Text style={styles.serviceIconText}>{s.icon}</Text>
@@ -76,13 +64,16 @@ export default function EmergencyScreen() {
               <View style={styles.serviceInfo}>
                 <Text style={styles.serviceType}>{s.type}</Text>
                 <Text style={styles.serviceName}>{s.name}</Text>
-                <Text style={styles.serviceAddress}>{s.address}</Text>
+                {!!s.address && <Text style={styles.serviceAddress}>{s.address}</Text>}
               </View>
             </View>
             <View style={styles.serviceActions}>
               <TouchableOpacity
                 style={styles.navigateBtn}
-                onPress={() => setNavFacility(s)}
+                onPress={() => s.lat
+                  ? Linking.openURL(`https://maps.google.com/?q=${s.lat},${s.lon}`)
+                  : setNavFacility(s)
+                }
               >
                 <Text style={styles.navigateBtnText}>
                   🧭  Navigate · {s.dist} · {s.time}
@@ -140,6 +131,7 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted, fontSize: 11, fontWeight: '700',
     textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12,
   },
+  loadingText: {color: COLORS.textMuted, fontSize: 13, marginBottom: 16, paddingVertical: 8},
 
   contactRow: {
     backgroundColor: COLORS.card,

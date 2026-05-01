@@ -1,5 +1,4 @@
-import Geolocation from '@react-native-community/geolocation';
-import {PermissionsAndroid, Platform} from 'react-native';
+import * as ExpoLocation from 'expo-location';
 
 class LocationService {
   static _instance = null;
@@ -18,38 +17,31 @@ class LocationService {
   }
 
   async requestPermission() {
-    if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        {
-          title: 'Location Permission',
-          message: 'SafeGuard needs your location to share with emergency services.',
-          buttonPositive: 'Allow',
-          buttonNegative: 'Deny',
-        },
-      );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
-    }
-    // iOS: Geolocation.requestAuthorization() handles it natively
-    Geolocation.requestAuthorization();
-    return true;
+    const {status} = await ExpoLocation.requestForegroundPermissionsAsync();
+    return status === 'granted';
   }
 
-  getCurrentPosition() {
-    return new Promise(resolve => {
-      Geolocation.getCurrentPosition(
-        pos => {
-          this._last = {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-          };
-          resolve(this._last);
-        },
-        () => resolve(this._last),
-        {enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000},
-      );
-    });
+  async getCurrentPosition() {
+    try {
+      const {status} = await ExpoLocation.getForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        const granted = await this.requestPermission();
+        if (!granted) return this._last;
+      }
+
+      const loc = await ExpoLocation.getCurrentPositionAsync({
+        accuracy: ExpoLocation.Accuracy.High,
+      });
+
+      this._last = {
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        accuracy: loc.coords.accuracy,
+      };
+      return this._last;
+    } catch {
+      return this._last;
+    }
   }
 
   formatCoords(pos) {

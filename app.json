@@ -4,8 +4,19 @@
     "slug": "women-safe",
     "version": "1.0.0",
     "android": {
-      "package": "com.anonymous.womensafe"
-    }
+      "package": "com.anonymous.womensafe",
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "SafeGuard uses your location to show local risk score."
+      }
+    },
+    "plugins": [
+      ["expo-location", {
+        "locationWhenInUsePermission": "SafeGuard uses your location to show local risk score."
+      }]
+    ]
   },
   "name": "women-safe"
 }

@@ -1,8 +1,9 @@
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 
 const ACCEL_THRESHOLD = 25.0; // m/s²
-const GYRO_THRESHOLD = 8.0; // rad/s
+const GYRO_THRESHOLD = 8.0;   // rad/s
 const COOLDOWN_MS = 15_000;
+const WINDOW_SIZE = 100;       // 100 readings × 50ms = 5s
 
 class SensorService {
   static _instance = null;
@@ -20,7 +21,6 @@ class SensorService {
     this.prevAccelMag = 9.81;
     this._monitoring = false;
 
-    // Latest values
     this.gx = 0;
     this.gy = 0;
     this.gz = 0;
@@ -28,12 +28,19 @@ class SensorService {
     this.ay = 0;
     this.az = 0;
 
+    this._window = [];
+    this.latestReadings = { accelMag: 9.81, gyroMag: 0 };
+
     this.onImpactDetected = null;
     this.onReadingsUpdated = null;
   }
 
   get isMonitoring() {
     return this._monitoring;
+  }
+
+  getRecentWindow() {
+    return [...this._window];
   }
 
   startMonitoring() {
@@ -52,6 +59,13 @@ class SensorService {
       this.prevAccelMag = mag;
 
       const gyroMag = Math.sqrt(this.gx ** 2 + this.gy ** 2 + this.gz ** 2);
+
+      // Update public latest readings (read by App.js for AI context)
+      this.latestReadings = { accelMag: mag, gyroMag };
+
+      // Rolling window for movement classification
+      this._window.push({ accelMag: mag, gyroMag });
+      if (this._window.length > WINDOW_SIZE) this._window.shift();
 
       this.onReadingsUpdated?.({
         ax: x, ay: y, az: z,
@@ -84,15 +98,25 @@ class SensorService {
     this._monitoring = false;
     if (this.cooldownTimer) clearTimeout(this.cooldownTimer);
     this.cooldown = false;
+    this._window = [];
   }
 
-  _trigger() {
+  async _trigger() {
     if (this.cooldown) return;
+    // Set cooldown synchronously — prevents double-trigger before async resolves
     this.cooldown = true;
-    this.onImpactDetected?.();
-    this.cooldownTimer = setTimeout(() => {
-      this.cooldown = false;
-    }, COOLDOWN_MS);
+    this.cooldownTimer = setTimeout(() => { this.cooldown = false; }, COOLDOWN_MS);
+
+    try {
+      const AIService = (await import('./AIService')).default;
+      const result = AIService.analyzeMovement(this.getRecentWindow());
+      if (result.shouldAlert) {
+        this.onImpactDetected?.();
+      }
+    } catch {
+      // AI unavailable — fall back to always-alert
+      this.onImpactDetected?.();
+    }
   }
 
   dispose() {
@@ -101,4 +125,4 @@ class SensorService {
 }
 
 export default SensorService.getInstance();
-export {ACCEL_THRESHOLD, GYRO_THRESHOLD};
+export { ACCEL_THRESHOLD, GYRO_THRESHOLD };

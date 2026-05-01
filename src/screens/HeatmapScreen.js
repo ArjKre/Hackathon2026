@@ -1,12 +1,18 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {WebView} from 'react-native-webview';
-import {COLORS, SPACING} from '../theme';
-import heatmapHtml from '../assets/heatmapHtml';
-import LocationService from '../services/LocationService';
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { WebView } from "react-native-webview";
+import { COLORS, SPACING } from "../theme";
+import heatmapHtml from "../assets/heatmapHtml";
+import LocationService from "../services/LocationService";
 
 // Must match the Leaflet map variable name in the HTML
-const MAP_VAR = 'map_345240f864f74764bb31fc442ebf7084';
+const MAP_VAR = "map_345240f864f74764bb31fc442ebf7084";
 
 function buildInjectScript(lat, lng) {
   return `
@@ -64,7 +70,7 @@ export default function HeatmapScreen() {
   useEffect(() => {
     if (mapReady && location) {
       webViewRef.current?.injectJavaScript(
-        buildInjectScript(location.latitude, location.longitude)
+        buildInjectScript(location.latitude, location.longitude),
       );
     }
   }, [mapReady, location]);
@@ -82,7 +88,7 @@ export default function HeatmapScreen() {
           <Text style={styles.subtitle}>
             {location
               ? `📍 ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
-              : 'Tap locate to centre map'}
+              : "Tap locate to centre map"}
           </Text>
         </View>
         <TouchableOpacity
@@ -90,18 +96,20 @@ export default function HeatmapScreen() {
           onPress={fetchLocation}
           disabled={locating}
         >
-          {locating
-            ? <ActivityIndicator size="small" color={COLORS.safe} />
-            : <Text style={styles.locateBtnText}>📍 Locate</Text>}
+          {locating ? (
+            <ActivityIndicator size="small" color={COLORS.safe} />
+          ) : (
+            <Text style={styles.locateBtnText}>📍 Locate</Text>
+          )}
         </TouchableOpacity>
       </View>
 
       <View style={styles.mapContainer}>
         <WebView
           ref={webViewRef}
-          source={{html: heatmapHtml}}
+          source={{ html: heatmapHtml }}
           style={styles.map}
-          originWhitelist={['*']}
+          originWhitelist={["*"]}
           mixedContentMode="always"
           javaScriptEnabled
           domStorageEnabled
@@ -120,22 +128,22 @@ export default function HeatmapScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: COLORS.base},
+  container: { flex: 1, backgroundColor: COLORS.base },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingTop: 60,
     paddingHorizontal: SPACING.screenPadding,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  title: {color: COLORS.textPrimary, fontSize: 20, fontWeight: '700'},
-  subtitle: {color: COLORS.textSecondary, fontSize: 13, marginTop: 2},
+  title: { color: COLORS.textPrimary, fontSize: 20, fontWeight: "700" },
+  subtitle: { color: COLORS.textSecondary, fontSize: 13, marginTop: 2 },
   locateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 100,
@@ -143,18 +151,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${COLORS.safe}44`,
     minWidth: 80,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
-  locateBtnBusy: {opacity: 0.6},
-  locateBtnText: {color: COLORS.safe, fontSize: 13, fontWeight: '700'},
-  mapContainer: {flex: 1},
-  map: {flex: 1, backgroundColor: COLORS.base},
+  locateBtnBusy: { opacity: 0.6 },
+  locateBtnText: { color: COLORS.safe, fontSize: 13, fontWeight: "700" },
+  mapContainer: { flex: 1 },
+  map: { flex: 1, backgroundColor: COLORS.base },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.base,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     gap: 12,
   },
-  loadingText: {color: COLORS.textSecondary, fontSize: 14},
+  loadingText: { color: COLORS.textSecondary, fontSize: 14 },
 });
