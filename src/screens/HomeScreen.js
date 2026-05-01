@@ -1,13 +1,15 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   Animated,
-  Easing,
+  FlatList,
   Linking,
+  Modal,
   Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   Vibration,
@@ -15,56 +17,60 @@ import {
 } from 'react-native';
 import Svg, {Circle} from 'react-native-svg';
 import SensorService from '../services/SensorService';
-import LocationService from '../services/LocationService';
+import RiskService from '../services/RiskService';
+import NearbyServicesService from '../services/NearbyServicesService';
 import EmergencyOverlay from '../components/EmergencyOverlay';
 import {COLORS, SPACING, ZONES} from '../theme';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+function getTimeOfDay() {
+  const h = new Date().getHours();
+  if (h >= 6 && h < 12) return {label: 'Morning', color: COLORS.safe};
+  if (h >= 12 && h < 17) return {label: 'Afternoon', color: COLORS.safe};
+  if (h >= 17 && h < 21) return {label: 'Evening', color: COLORS.caution};
+  return {label: 'Night', color: COLORS.caution};
+}
 
-export default function HomeScreen({zone, score, setZone, setScore}) {
+const RISK_COLOR = {low: COLORS.safe, medium: COLORS.caution, high: COLORS.unsafe};
+
+
+export default function HomeScreen({
+  zone, score, setZone, setScore,
+  locationName, riskLabel = 'low', crimeRate = 0,
+  simulatedArea, onSimulate,
+  aiInsight = null, aiSuggestion = null, aiScore = null, aiAlertLevel = 'none',
+  silentAlertActive = false, onSilentAlertDismiss,
+  nearbyServices = [],
+}) {
   const {width} = useWindowDimensions();
   const [emergency, setEmergency] = useState(false);
-  const [location, setLocation] = useState('Fazer Town, Bengaluru');
   const [readings, setReadings] = useState({accelMag: 9.81, gyroMag: 0});
+  const [simModalVisible, setSimModalVisible] = useState(false);
+  const [search, setSearch] = useState('');
 
-  // Animations
-  const ringAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const scoreCounter = useRef(new Animated.Value(score)).current;
   const [displayScore, setDisplayScore] = useState(score);
 
   useEffect(() => {
-    LocationService.requestPermission();
     SensorService.startMonitoring();
-    
     SensorService.onImpactDetected = () => {
       setEmergency(true);
       Vibration.vibrate([0, 500, 200, 500]);
     };
-
-    SensorService.onReadingsUpdated = (r) => {
-      setReadings(r);
-    };
-
+    SensorService.onReadingsUpdated = r => setReadings(r);
     return () => SensorService.stopMonitoring();
   }, []);
 
-  // Update animated score
   useEffect(() => {
     Animated.timing(scoreCounter, {
       toValue: score,
       duration: 1000,
       useNativeDriver: false,
     }).start();
-
-    const listener = scoreCounter.addListener(({value}) => {
-      setDisplayScore(Math.round(value));
-    });
-
+    const listener = scoreCounter.addListener(({value}) => setDisplayScore(Math.round(value)));
     return () => scoreCounter.removeListener(listener);
   }, [score]);
 
-  // Pulse animation for location dot and unsafe ring
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -74,52 +80,54 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
     ).start();
   }, []);
 
-  const getZoneAccent = () => {
-    switch (zone) {
-      case ZONES.SAFE: return COLORS.safe;
-      case ZONES.CAUTION: return COLORS.caution;
-      case ZONES.UNSAFE: return COLORS.unsafe;
-      default: return COLORS.safe;
+  useEffect(() => {
+    if (silentAlertActive) {
+      setEmergency(true);
+      onSilentAlertDismiss?.();
     }
-  };
+  }, [silentAlertActive]);
 
-  const accent = getZoneAccent();
+  const accent = zone === ZONES.SAFE ? COLORS.safe : zone === ZONES.CAUTION ? COLORS.caution : COLORS.unsafe;
 
-  const handleSOS = () => {
-    setEmergency(true);
-    Vibration.vibrate(100);
-  };
+  const filteredAreas = RiskService.AREA_LIST.filter(a =>
+    a.toLowerCase().includes(search.toLowerCase())
+  );
 
-  const cycleZone = () => {
-    if (zone === ZONES.SAFE) {
-      setZone(ZONES.CAUTION);
-      setScore(51);
-    } else if (zone === ZONES.CAUTION) {
-      setZone(ZONES.UNSAFE);
-      setScore(22);
+  const handleSimToggle = () => {
+    if (simulatedArea) {
+      onSimulate(null);
     } else {
-      setZone(ZONES.SAFE);
-      setScore(82);
+      setSearch('');
+      setSimModalVisible(true);
     }
+  };
+
+  const handleAreaSelect = (area) => {
+    setSimModalVisible(false);
+    onSimulate(area);
   };
 
   return (
     <View style={styles.root}>
-      <ScrollView 
-        style={styles.scroll} 
+      <ScrollView
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* 1.1 Header */}
+        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.appName}>WOMEN SAFE</Text>
             <Text style={styles.greeting}>Good evening, Haidar</Text>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconBtn}>
-              <Text style={styles.iconText}>🔔</Text>
-              {zone !== ZONES.SAFE && <View style={[styles.badge, {backgroundColor: accent}]} />}
+            <TouchableOpacity
+              style={[styles.simBtn, simulatedArea && {backgroundColor: COLORS.caution + '33', borderColor: COLORS.caution}]}
+              onPress={handleSimToggle}
+            >
+              <Text style={[styles.simBtnText, {color: simulatedArea ? COLORS.caution : COLORS.textSecondary}]}>
+                {simulatedArea ? 'SIM ON' : 'SIM'}
+              </Text>
             </TouchableOpacity>
             <View style={styles.avatarMini}>
               <Text style={styles.avatarTextMini}>H</Text>
@@ -127,33 +135,28 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
           </View>
         </View>
 
-        {/* 1.2 Location Pill */}
+        {/* Location Pill */}
         <View style={styles.locationContainer}>
-          <View style={styles.locationPill}>
-            <Animated.View style={[styles.pulseDot, {backgroundColor: COLORS.safe, opacity: pulseAnim}]} />
+          <View style={[styles.locationPill, simulatedArea && {borderColor: COLORS.caution}]}>
+            <Animated.View style={[styles.pulseDot, {backgroundColor: simulatedArea ? COLORS.caution : COLORS.safe, opacity: pulseAnim}]} />
             <Text style={styles.locationIcon}>📍</Text>
-            <Text style={styles.locationText}>{location} • Live</Text>
+            <Text style={styles.locationText}>
+              {locationName} • {simulatedArea ? 'Simulated' : 'Live'}
+            </Text>
           </View>
         </View>
 
-        {/* 1.3 Score Ring */}
+        {/* Score Ring */}
         <View style={styles.scoreContainer}>
           <View style={styles.scoreRingWrapper}>
             {zone === ZONES.UNSAFE && (
-              <Animated.View style={[styles.pulseRing, {borderColor: accent, transform: [{scale: pulseAnim.interpolate({inputRange: [0, 1], outputRange: [1, 1.4]})}, ], opacity: pulseAnim.interpolate({inputRange: [0, 1], outputRange: [0.5, 0]}) }]} />
+              <Animated.View style={[styles.pulseRing, {borderColor: accent, transform: [{scale: pulseAnim.interpolate({inputRange: [0, 1], outputRange: [1, 1.4]})}], opacity: pulseAnim.interpolate({inputRange: [0, 1], outputRange: [0.5, 0]})}]} />
             )}
             <Svg width="180" height="180" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="45" stroke={COLORS.border} strokeWidth="8" fill="none" />
               <Circle
                 cx="50" cy="50" r="45"
-                stroke={COLORS.border}
-                strokeWidth="8"
-                fill="none"
-              />
-              <Circle
-                cx="50" cy="50" r="45"
-                stroke={accent}
-                strokeWidth="8"
-                fill="none"
+                stroke={accent} strokeWidth="8" fill="none"
                 strokeDasharray={`${(displayScore / 100) * 283} 283`}
                 strokeLinecap="round"
                 transform="rotate(-90 50 50)"
@@ -166,18 +169,47 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
           </View>
         </View>
 
-        {/* 1.4 Score Factors */}
-        <View style={styles.factorsCard}>
-          <FactorItem label="Risk" value="Low" color={COLORS.safe} />
-          <View style={styles.divider} />
-          <FactorItem label="Movement" value={readings.accelMag > 15 ? 'Fast' : 'Steady'} color={readings.accelMag > 15 ? COLORS.caution : COLORS.safe} />
-          <View style={styles.divider} />
-          <FactorItem label="Time" value="Night" color={COLORS.caution} />
-          <View style={styles.divider} />
-          <FactorItem label="Crime" value="2.4%" color={COLORS.safe} />
-        </View>
+        {/* Score Factors */}
+        {(() => {
+          const time = getTimeOfDay();
+          return (
+            <View style={styles.factorsCard}>
+              <FactorItem label="Risk" value={riskLabel.charAt(0).toUpperCase() + riskLabel.slice(1)} color={RISK_COLOR[riskLabel] ?? COLORS.safe} />
+              <View style={styles.divider} />
+              <FactorItem label="Movement" value={readings.accelMag > 15 ? 'Fast' : 'Steady'} color={readings.accelMag > 15 ? COLORS.caution : COLORS.safe} />
+              <View style={styles.divider} />
+              <FactorItem label="Time" value={time.label} color={time.color} />
+              <View style={styles.divider} />
+              <FactorItem label="Crime" value={`${crimeRate.toFixed(1)}%`} color={crimeRate > 50 ? COLORS.unsafe : crimeRate > 20 ? COLORS.caution : COLORS.safe} />
+            </View>
+          );
+        })()}
 
-        {/* 1.5 Alert Banner */}
+        {/* AI Insight Card */}
+        {aiInsight && (() => {
+          const aiAccent = aiAlertLevel === 'high' ? COLORS.unsafe
+                         : aiAlertLevel === 'medium' ? COLORS.caution
+                         : COLORS.safe;
+          return (
+            <View style={[styles.aiCard, {borderLeftColor: aiAccent}]}>
+              <View style={styles.aiCardHeader}>
+                <View style={[styles.aiCardBadge, {backgroundColor: aiAccent}]}>
+                  <Text style={styles.aiCardBadgeText}>AI</Text>
+                </View>
+                <Text style={styles.aiCardTitle}>Live Analysis</Text>
+              </View>
+              <Text style={styles.aiInsightText}>{aiInsight}</Text>
+              {aiSuggestion && (
+                <View style={styles.aiSuggestionRow}>
+                  <Text style={[styles.aiSuggestionArrow, {color: aiAccent}]}>→</Text>
+                  <Text style={styles.aiSuggestionText}>{aiSuggestion}</Text>
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* Alert Banner */}
         {zone !== ZONES.SAFE && (
           <View style={[styles.alertBanner, {backgroundColor: `${accent}22`, borderColor: accent}]}>
             <Text style={styles.alertIcon}>{zone === ZONES.UNSAFE ? '⚠️' : 'ℹ️'}</Text>
@@ -186,53 +218,83 @@ export default function HomeScreen({zone, score, setZone, setScore}) {
                 {zone === ZONES.UNSAFE ? 'High Risk Area Detected' : 'Increased Caution Advised'}
               </Text>
               <Text style={styles.alertDesc}>
-                {zone === ZONES.UNSAFE 
-                  ? 'Multiple incidents reported nearby. Stay in well-lit areas.' 
+                {zone === ZONES.UNSAFE
+                  ? 'Multiple incidents reported nearby. Stay in well-lit areas.'
                   : 'You are entering a zone with moderate incident history.'}
               </Text>
             </View>
           </View>
         )}
 
-        {/* 1.6 SOS Button */}
-        <TouchableOpacity 
-          style={[styles.sosButton, {borderColor: accent, backgroundColor: zone === ZONES.UNSAFE ? accent : COLORS.card}]} 
-          onPress={handleSOS}
+        {/* SOS Button */}
+        <TouchableOpacity
+          style={[styles.sosButton, {borderColor: accent, backgroundColor: zone === ZONES.UNSAFE ? accent : COLORS.card}]}
+          onPress={() => { setEmergency(true); Vibration.vibrate(100); }}
         >
           <Text style={[styles.sosButtonText, {color: zone === ZONES.UNSAFE ? COLORS.base : COLORS.unsafe}]}>
             TRIGGER EMERGENCY SOS
           </Text>
         </TouchableOpacity>
 
-        {/* 1.7 Nearby Services */}
+        {/* Nearby Services */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Nearby Safety Services</Text>
           <View style={[styles.priorityBadge, {backgroundColor: `${accent}22`}]}>
             <Text style={[styles.priorityText, {color: accent}]}>PRIORITY MODE</Text>
           </View>
         </View>
-        
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.servicesScroll}>
-          <ServiceCard icon="👮" type="Police" name="Central Station" dist="0.8 km" />
-          <ServiceCard icon="🏥" type="Hospital" name="St. Johns" dist="1.2 km" />
-          <ServiceCard icon="🚒" type="Fire" name="Station 4" dist="2.5 km" />
-        </ScrollView>
-
-        {/* Tweaks for demo */}
-        <TouchableOpacity onPress={cycleZone} style={styles.tweakBtn}>
-          <Text style={styles.tweakText}>Toggle Zone (Demo: {zone})</Text>
-        </TouchableOpacity>
+        {nearbyServices.length === 0 ? (
+          <View style={styles.servicesLoading}>
+            <Text style={styles.servicesLoadingText}>Locating nearby services…</Text>
+          </View>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.servicesScroll}>
+            {NearbyServicesService.groupTopByType(nearbyServices, 1).map((s, i) => (
+              <ServiceCard key={s.id ?? i} icon={s.icon} type={s.type} name={s.name} dist={s.dist} lat={s.lat} lon={s.lon} />
+            ))}
+          </ScrollView>
+        )}
 
         <View style={{height: 100}} />
       </ScrollView>
 
-      <EmergencyOverlay 
-        visible={emergency} 
-        onCancel={() => setEmergency(false)} 
-        onCallNow={() => {
-          setEmergency(false);
-          Linking.openURL('tel:112');
-        }}
+      {/* Simulate Area Picker Modal */}
+      <Modal visible={simModalVisible} animationType="slide" transparent onRequestClose={() => setSimModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Simulate Location</Text>
+              <TouchableOpacity onPress={() => setSimModalVisible(false)} style={styles.modalClose}>
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search area…"
+              placeholderTextColor={COLORS.textMuted}
+              value={search}
+              onChangeText={setSearch}
+              autoFocus
+            />
+            <FlatList
+              data={filteredAreas}
+              keyExtractor={item => item}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({item}) => (
+                <TouchableOpacity style={styles.areaRow} onPress={() => handleAreaSelect(item)}>
+                  <Text style={styles.areaText}>{item}</Text>
+                </TouchableOpacity>
+              )}
+              ItemSeparatorComponent={() => <View style={styles.areaSep} />}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <EmergencyOverlay
+        visible={emergency}
+        onCancel={() => setEmergency(false)}
+        onCallNow={() => { setEmergency(false); Linking.openURL('tel:112'); }}
       />
     </View>
   );
@@ -247,21 +309,28 @@ function FactorItem({label, value, color}) {
   );
 }
 
-function ServiceCard({icon, type, name, dist}) {
+function ServiceCard({icon, type, name, dist, lat, lon}) {
+  const handleGo = () => {
+    if (lat && lon) Linking.openURL(`https://maps.google.com/?q=${lat},${lon}`);
+  };
   return (
-    <View style={styles.serviceCard}>
+    <TouchableOpacity 
+      style={styles.serviceCard} 
+      onPress={handleGo}
+      activeOpacity={0.7}
+    >
       <View style={styles.serviceIconContainer}>
         <Text style={styles.serviceIcon}>{icon}</Text>
       </View>
       <Text style={styles.serviceType}>{type}</Text>
-      <Text style={styles.serviceName}>{name}</Text>
+      <Text style={styles.serviceName} numberOfLines={2}>{name}</Text>
       <View style={styles.serviceFooter}>
         <Text style={styles.serviceDist}>{dist}</Text>
-        <TouchableOpacity style={styles.navBtn}>
+        <View style={styles.navBtn}>
           <Text style={styles.navBtnText}>Go</Text>
-        </TouchableOpacity>
+        </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -269,14 +338,13 @@ const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: COLORS.base},
   scroll: {flex: 1},
   scrollContent: {paddingHorizontal: SPACING.screenPadding, paddingTop: Platform.OS === 'ios' ? 60 : (StatusBar.currentHeight ?? 24) + 16},
-  
+
   header: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20},
   appName: {color: COLORS.textSecondary, fontSize: 12, fontWeight: '700', letterSpacing: 1},
   greeting: {color: COLORS.textPrimary, fontSize: 18, fontWeight: '700'},
-  headerRight: {flexDirection: 'row', alignItems: 'center'},
-  iconBtn: {width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 8},
-  iconText: {fontSize: 20},
-  badge: {position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4},
+  headerRight: {flexDirection: 'row', alignItems: 'center', gap: 8},
+  simBtn: {paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: COLORS.border},
+  simBtnText: {fontSize: 11, fontWeight: '800', letterSpacing: 0.5},
   avatarMini: {width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.elevated, alignItems: 'center', justifyContent: 'center'},
   avatarTextMini: {color: COLORS.textPrimary, fontWeight: '700'},
 
@@ -299,6 +367,17 @@ const styles = StyleSheet.create({
   factorLabel: {fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase'},
   divider: {width: 1, height: '100%', backgroundColor: COLORS.border},
 
+  aiCard: {backgroundColor: COLORS.card, borderRadius: SPACING.radiusCard, padding: 16, marginBottom: 24, borderWidth: 1, borderColor: COLORS.border, borderLeftWidth: 3},
+  aiCardHeader: {flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8},
+  aiCardBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4},
+  aiCardBadgeText: {color: '#000', fontSize: 10, fontWeight: '800', letterSpacing: 0.5},
+  aiCardTitle: {color: COLORS.textPrimary, fontSize: 13, fontWeight: '700', flex: 1},
+  aiScoreChip: {fontSize: 20, fontWeight: '800', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace'},
+  aiInsightText: {color: COLORS.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: 8},
+  aiSuggestionRow: {flexDirection: 'row', alignItems: 'flex-start', gap: 6},
+  aiSuggestionArrow: {fontSize: 14, fontWeight: '700', marginTop: 1},
+  aiSuggestionText: {color: COLORS.textPrimary, fontSize: 13, fontWeight: '500', flex: 1, lineHeight: 18},
+
   alertBanner: {flexDirection: 'row', padding: 16, borderRadius: SPACING.radiusCard, borderWidth: 1, marginBottom: 24},
   alertIcon: {fontSize: 20, marginRight: 12},
   alertTitle: {fontSize: 15, fontWeight: '700', marginBottom: 4},
@@ -312,6 +391,8 @@ const styles = StyleSheet.create({
   priorityBadge: {paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4},
   priorityText: {fontSize: 10, fontWeight: '800'},
 
+  servicesLoading: {paddingVertical: 24, alignItems: 'center'},
+  servicesLoadingText: {color: COLORS.textMuted, fontSize: 13},
   servicesScroll: {marginHorizontal: -SPACING.screenPadding, paddingLeft: SPACING.screenPadding},
   serviceCard: {width: 160, backgroundColor: COLORS.card, borderRadius: SPACING.radiusCard, padding: 16, marginRight: 12, borderWidth: 1, borderColor: COLORS.border},
   serviceIconContainer: {width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.elevated, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
@@ -323,6 +404,14 @@ const styles = StyleSheet.create({
   navBtn: {backgroundColor: `${COLORS.safe}22`, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 100},
   navBtnText: {color: COLORS.safe, fontSize: 12, fontWeight: '700'},
 
-  tweakBtn: {marginTop: 20, padding: 10, alignItems: 'center'},
-  tweakText: {color: COLORS.textMuted, fontSize: 12},
+  modalOverlay: {flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end'},
+  modalSheet: {backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', paddingBottom: 32},
+  modalHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingBottom: 12},
+  modalTitle: {color: COLORS.textPrimary, fontSize: 16, fontWeight: '700'},
+  modalClose: {padding: 4},
+  modalCloseText: {color: COLORS.textSecondary, fontSize: 18},
+  searchInput: {marginHorizontal: 16, marginBottom: 8, backgroundColor: COLORS.elevated, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, color: COLORS.textPrimary, fontSize: 14, borderWidth: 1, borderColor: COLORS.border},
+  areaRow: {paddingHorizontal: 20, paddingVertical: 14},
+  areaText: {color: COLORS.textPrimary, fontSize: 14},
+  areaSep: {height: 1, backgroundColor: COLORS.border, marginHorizontal: 20},
 });
