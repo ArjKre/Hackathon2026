@@ -12,10 +12,10 @@ import {
   Vibration,
   View,
 } from 'react-native';
-import SensorService from './SensorService';
-import LocationService from './LocationService';
-import EmergencyOverlay from './EmergencyOverlay';
-import {SensorGauge, RadarWidget, Sparkline} from './SensorWidgets';
+import SensorService from '../services/SensorService';
+import LocationService from '../services/LocationService';
+import EmergencyOverlay from '../components/EmergencyOverlay';
+import {SensorGauge, RadarWidget, Sparkline} from '../components/SensorWidgets';
 
 const HISTORY_LEN = 60;
 

@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Svg, {Circle} from 'react-native-svg';
-import LocationService from './LocationService';
+import LocationService from '../services/LocationService';
 
 const COUNTDOWN = 180; // 3 minutes in seconds
 
