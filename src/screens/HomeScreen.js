@@ -58,8 +58,11 @@ export default function HomeScreen({
       Vibration.vibrate([0, 500, 200, 500]);
     };
     SensorService.onReadingsUpdated = r => setReadings(r);
-    return () => SensorService.stopMonitoring();
+    // Keep sensors running continuously - don't stop monitoring
+    // Cleanup only needed if we want to reset readings
   }, []);
+
+
 
   useEffect(() => {
     Animated.timing(scoreCounter, {
@@ -107,6 +110,17 @@ export default function HomeScreen({
     onSimulate(area);
   };
 
+  const handleEmergencyClose = () => {
+    setEmergency(false);
+    // Sensors continue monitoring in background
+  };
+
+  const handleEmergencyCall = () => {
+    setEmergency(false);
+    Linking.openURL('tel:112');
+    // Sensors continue monitoring in background
+  };
+
   return (
     <View style={styles.root}>
       <ScrollView
@@ -117,8 +131,8 @@ export default function HomeScreen({
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.appName}>WOMEN SAFE</Text>
-            <Text style={styles.greeting}>Good evening, Haidar</Text>
+            <Text style={styles.appName}>SAFE JOURNEY</Text>
+            <Text style={styles.greeting}>Good evening, RIYA</Text>
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
@@ -293,8 +307,8 @@ export default function HomeScreen({
 
       <EmergencyOverlay
         visible={emergency}
-        onCancel={() => setEmergency(false)}
-        onCallNow={() => { setEmergency(false); Linking.openURL('tel:112'); }}
+        onCancel={handleEmergencyClose}
+        onCallNow={handleEmergencyCall}
       />
     </View>
   );
