@@ -19,7 +19,6 @@ import Svg, {Circle} from 'react-native-svg';
 import SensorService from '../services/SensorService';
 import RiskService from '../services/RiskService';
 import NearbyServicesService from '../services/NearbyServicesService';
-import EmergencyOverlay from '../components/EmergencyOverlay';
 import {COLORS, SPACING, ZONES} from '../theme';
 
 function getTimeOfDay() {
@@ -40,9 +39,9 @@ export default function HomeScreen({
   aiInsight = null, aiSuggestion = null, aiScore = null, aiAlertLevel = 'none',
   silentAlertActive = false, onSilentAlertDismiss,
   nearbyServices = [],
+  onTriggerEmergency,
 }) {
   const {width} = useWindowDimensions();
-  const [emergency, setEmergency] = useState(false);
   const [readings, setReadings] = useState({accelMag: 9.81, gyroMag: 0});
   const [simModalVisible, setSimModalVisible] = useState(false);
   const [search, setSearch] = useState('');
@@ -52,14 +51,7 @@ export default function HomeScreen({
   const [displayScore, setDisplayScore] = useState(score);
 
   useEffect(() => {
-    SensorService.startMonitoring();
-    SensorService.onImpactDetected = () => {
-      setEmergency(true);
-      Vibration.vibrate([0, 500, 200, 500]);
-    };
     SensorService.onReadingsUpdated = r => setReadings(r);
-    // Keep sensors running continuously - don't stop monitoring
-    // Cleanup only needed if we want to reset readings
   }, []);
 
 
@@ -88,7 +80,7 @@ export default function HomeScreen({
       setEmergency(true);
       onSilentAlertDismiss?.();
     }
-  }, [silentAlertActive]);
+  }, [silentAlertActive, onSilentAlertDismiss]);
 
   const accent = zone === ZONES.SAFE ? COLORS.safe : zone === ZONES.CAUTION ? COLORS.caution : COLORS.unsafe;
 
@@ -108,17 +100,6 @@ export default function HomeScreen({
   const handleAreaSelect = (area) => {
     setSimModalVisible(false);
     onSimulate(area);
-  };
-
-  const handleEmergencyClose = () => {
-    setEmergency(false);
-    // Sensors continue monitoring in background
-  };
-
-  const handleEmergencyCall = () => {
-    setEmergency(false);
-    Linking.openURL('tel:112');
-    // Sensors continue monitoring in background
   };
 
   return (
@@ -243,7 +224,10 @@ export default function HomeScreen({
         {/* SOS Button */}
         <TouchableOpacity
           style={[styles.sosButton, {borderColor: accent, backgroundColor: zone === ZONES.UNSAFE ? accent : COLORS.card}]}
-          onPress={() => { setEmergency(true); Vibration.vibrate(100); }}
+          onPress={() => {
+            Vibration.vibrate(100);
+            onTriggerEmergency?.();
+          }}
         >
           <Text style={[styles.sosButtonText, {color: zone === ZONES.UNSAFE ? COLORS.base : COLORS.unsafe}]}>
             TRIGGER EMERGENCY SOS
@@ -304,12 +288,6 @@ export default function HomeScreen({
           </View>
         </View>
       </Modal>
-
-      <EmergencyOverlay
-        visible={emergency}
-        onCancel={handleEmergencyClose}
-        onCallNow={handleEmergencyCall}
-      />
     </View>
   );
 }

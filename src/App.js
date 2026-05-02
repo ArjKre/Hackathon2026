@@ -1,11 +1,12 @@
 import {StatusBar} from 'expo-status-bar';
-import React, {useCallback, useEffect, useState} from 'react';
-import {BackHandler, StyleSheet, View} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {AppState, BackHandler, StyleSheet, View, Vibration, Linking, NativeModules, NativeEventEmitter, Platform} from 'react-native';
 import HomeScreen from './screens/HomeScreen';
 import HeatmapScreen from './screens/HeatmapScreen';
 import EmergencyScreen from './screens/EmergencyScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import FloatingNavbar from './components/FloatingNavbar';
+import EmergencyOverlay from './components/EmergencyOverlay';
 import {COLORS, ZONES} from './theme';
 import LocationService from './services/LocationService';
 import RiskService from './services/RiskService';
@@ -38,6 +39,9 @@ export default function App() {
   const [aiAlertLevel, setAiAlertLevel] = useState('none');
   const [silentAlertActive, setSilentAlertActive] = useState(false);
   const [nearbyServices, setNearbyServices] = useState([]);
+  const [emergencyVisible, setEmergencyVisible] = useState(false);
+  const appStateRef = useRef(AppState.currentState);
+  const pendingImpactRef = useRef(false);
 
   const setters = {setZone, setScore, setRiskLabel, setCrimeRate};
 
@@ -140,6 +144,106 @@ export default function App() {
     }
   }, [aiAlertLevel, zone]);
 
+  const handleAppStateChange = useCallback((nextAppState) => {
+    console.log('[APP STATE]', `${appStateRef.current} → ${nextAppState}`);
+    
+    if (nextAppState === 'active') {
+      // App is returning to foreground - restart sensor monitoring
+      console.log('[SENSOR] App returned to foreground - restarting monitoring');
+      SensorService.startMonitoring();
+      
+      if (pendingImpactRef.current) {
+        // App is coming back to foreground and there's a pending impact
+        console.log('[IMPACT] App returned to foreground - showing pending EmergencyOverlay');
+        setEmergencyVisible(true);
+        Vibration.vibrate([0, 500, 200, 500]);
+        pendingImpactRef.current = false;
+      }
+    } else if (nextAppState.match(/inactive|background/)) {
+      // App is going to background - keep monitoring (native module will handle it)
+      console.log('[SENSOR] App going to background - monitoring continues');
+    }
+    
+    appStateRef.current = nextAppState;
+  }, []);
+
+  // Impact detection & emergency monitoring in background
+  useEffect(() => {
+    const handleImpact = () => {
+      console.log('[IMPACT DETECTED]', new Date().toISOString());
+      pendingImpactRef.current = true;
+      // If app is in foreground, show overlay immediately
+      if (appStateRef.current === 'active') {
+        console.log('[IMPACT] App is active - showing EmergencyOverlay');
+        setEmergencyVisible(true);
+        Vibration.vibrate([0, 500, 200, 500]);
+      } else {
+        // App is backgrounded, will show overlay when it comes back to foreground
+        console.log('[IMPACT] App is backgrounded - stored as pending, will show on foreground');
+        Vibration.vibrate([0, 500, 200, 500]);
+      }
+    };
+
+    // Start React Native sensor monitoring
+    console.log('[SENSOR] Starting monitoring...');
+    SensorService.startMonitoring();
+    console.log('[SENSOR] Monitoring started');
+    SensorService.onImpactDetected = handleImpact;
+
+    // Start Android background sensor service
+    if (Platform.OS === 'android') {
+      console.log('[ANDROID] Initializing background sensor service');
+      const BackgroundSensor = NativeModules.BackgroundSensor;
+      if (BackgroundSensor) {
+        if (BackgroundSensor.requestOverlayPermission) {
+          BackgroundSensor.requestOverlayPermission()
+            .then(() => console.log('[ANDROID] Overlay permission request opened'))
+            .catch((error) => console.error('[ANDROID] Error requesting overlay permission:', error));
+        }
+
+        BackgroundSensor.startBackgroundSensorService()
+          .then(() => console.log('[ANDROID] Background sensor service started'))
+          .catch((error) => console.error('[ANDROID] Error starting service:', error));
+        
+        // Listen for background impact events
+        const eventEmitter = new NativeEventEmitter(BackgroundSensor);
+        const subscription = eventEmitter.addListener('BackgroundImpactDetected', (event) => {
+          console.log('[ANDROID IMPACT] Detected from background service:', event);
+          handleImpact();
+        });
+
+        return () => {
+          console.log('[ANDROID] Stopping background sensor service');
+          subscription.remove();
+          BackgroundSensor.stopBackgroundSensorService()
+            .catch((error) => console.error('[ANDROID] Error stopping service:', error));
+        };
+      }
+    }
+
+    // Keep sensors running continuously in background
+    return () => {
+      console.log('[SENSOR] Cleanup - monitoring continues in background');
+    };
+  }, []);
+
+  // Monitor app state changes to handle background impacts
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [handleAppStateChange]);
+
+  const handleEmergencyClose = () => {
+    setEmergencyVisible(false);
+  };
+
+  const handleEmergencyCall = () => {
+    setEmergencyVisible(false);
+    Linking.openURL('tel:112');
+  };
+
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (activeTab !== 'Home') {
@@ -174,6 +278,7 @@ export default function App() {
           silentAlertActive={silentAlertActive}
           onSilentAlertDismiss={() => setSilentAlertActive(false)}
           nearbyServices={nearbyServices}
+          onTriggerEmergency={() => setEmergencyVisible(true)}
         />
       </View>
       <View style={[styles.screen, activeTab !== 'Heatmap' && styles.hidden]}>
@@ -190,6 +295,12 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         zoneAccent={getZoneAccent()}
+      />
+
+      <EmergencyOverlay
+        visible={emergencyVisible}
+        onCancel={handleEmergencyClose}
+        onCallNow={handleEmergencyCall}
       />
     </View>
   );
